@@ -67,7 +67,6 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-        // この window.FB への代入により、React側からFirebase機能を使えるようにします
         window.FB = { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, collection, onSnapshot, addDoc, serverTimestamp, query, orderBy, limit };
     </script>
 
@@ -92,8 +91,7 @@
             const dbRef = useRef(null);
             const authRef = useRef(null);
             
-            // 重要: ブラウザで動かす際は自身のプロジェクトのIDに置き換えてください
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'cosmic-messenger-v3';
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'universal589-app';
 
             const PRESET_PHRASES = [
                 "音は空気を震わせる",
@@ -105,37 +103,28 @@
 
             useEffect(() => {
                 const init = async () => {
-                    // Firebase SDKがロードされるまで待機
                     if (!window.FB) return;
                     
                     try {
                         let config;
-                        // 1. 環境変数がある場合（Canvas上）
                         if (typeof __firebase_config !== 'undefined') {
                             config = JSON.parse(__firebase_config);
                         } else {
-                            // 2. ブラウザで直接開く場合（ここにご自身のFirebase設定を貼ってください）
                             config = {
-  　　　　　　　　　　　　　　　　　　　　apiKey: "AIzaSyBm4qNDqT_YpSPwUBkk0am8cpLrj3z4Zts",
- 　　　　　　　　　　　　　　 　　　　　　authDomain: "universal589.firebaseapp.com",
-  　　　　　　　　　　　　　　　　　　　　projectId: "universal589",
- 　　　　　　　　　　　　　　　　　　　　 storageBucket: "universal589.firebasestorage.app",
- 　　　　　　　　　　　　　　 　　　　　　messagingSenderId: "15981589867",
-　　　　　　　　　　　　　　 　　　　　　 appId: "1:15981589867:web:8e88912b6207995984482e",
-　　　　　　　　　　　　　　 　　　　　　 measurementId: "G-LFLVMK13DM"
-　　　　　　　　　　　　　　　　　　　　};
-                        }
-
-                        if (!config.apiKey && typeof __firebase_config === 'undefined') {
-                            setStatus('CONFIG_REQUIRED');
-                            return;
+                                apiKey: "AIzaSyBm4qNDqT_YpSPwUBkk0am8cpLrj3z4Zts",
+                                authDomain: "universal589.firebaseapp.com",
+                                projectId: "universal589",
+                                storageBucket: "universal589.firebasestorage.app",
+                                messagingSenderId: "15981589867",
+                                appId: "1:15981589867:web:8e88912b6207995984482e",
+                                measurementId: "G-LFLVMK13DM"
+                            };
                         }
 
                         const app = window.FB.initializeApp(config);
                         authRef.current = window.FB.getAuth(app);
                         dbRef.current = window.FB.getFirestore(app);
 
-                        // 認証プロセス
                         const startAuth = async () => {
                             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                                 await window.FB.signInWithCustomToken(authRef.current, __initial_auth_token);
@@ -152,10 +141,8 @@
                                 setStatus('SIGNAL_LOCKED');
                                 setIsReady(true);
                                 
-                                // 初期表示
                                 setMessages(PRESET_PHRASES.map((txt, i) => createMessageObject(`preset-${i}`, txt, `system_${i}`, true)));
 
-                                // リアルタイムリスナー
                                 const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
                                 window.FB.onSnapshot(msgCol, (snap) => {
                                     setLiveCount(snap.size + 10);
@@ -164,7 +151,7 @@
                                         const newItems = snap.docs
                                             .filter(d => !ids.has(d.id))
                                             .map(d => createMessageObject(d.id, d.data().text, d.data().userId));
-                                        return [...prev, ...newItems].slice(-30);
+                                        return [...prev, ...newItems].slice(-40);
                                     });
                                 }, (err) => {
                                     console.error(err);
@@ -178,7 +165,6 @@
                     }
                 };
                 
-                // window.FBがロードされるまで繰り返すチェック
                 const checkInterval = setInterval(() => {
                     if (window.FB) {
                         clearInterval(checkInterval);
@@ -202,26 +188,30 @@
 
             const checkSpecialKeywords = (text, isPreset) => {
                 if (isPreset) return {};
+                const t = text.toLowerCase();
                 return {
-                    isSakana: text.includes('サカナクション') || text.includes('新宝島'),
-                    isMoon: text.includes('月') || text.includes('MOON'),
-                    isOor: text.includes('ワンオクロック') || text.includes('ワンオク'),
-                    isUotami: text.includes('魚民') || text.includes('居酒屋'),
-                    isTentaikansoku: text.includes('天体観測') || text.includes('望遠鏡'),
-                    isEndless: text.includes('エンドレス') || text.includes('無限')
+                    isSakana: t.includes('サカナクション') || t.includes('新宝島'),
+                    isMoon: t.includes('月') || t.includes('moon'),
+                    isOor: t.includes('ワンオクロック') || t.includes('ワンオク'),
+                    isUotami: t.includes('魚民') || t.includes('居酒屋'),
+                    isTentaikansoku: t.includes('天体観測') || t.includes('望遠鏡'),
+                    isEndless: t.includes('エンドレス') || t.includes('無限')
                 };
             };
 
             const createMessageObject = (id, text, userId, isPreset = false) => {
                 const iden = generateIdentity(userId);
                 const specials = checkSpecialKeywords(text, isPreset);
-                const baseVel = -0.005 - (Math.random() * 0.006);
+                
+                // 浮上速度の設定：ユーザー投稿は -0.012〜-0.022 の範囲（以前より大幅に高速化）
+                const baseVel = isPreset ? (-0.005 - (Math.random() * 0.005)) : (-0.015 - (Math.random() * 0.015));
+                
                 return {
                     id, text, userId,
                     name: iden.name,
                     coords: iden.coords,
-                    x: 15 + Math.random() * 70,
-                    y: isPreset ? (10 + Math.random() * 80) : 110,
+                    x: 10 + Math.random() * 80,
+                    y: isPreset ? (10 + Math.random() * 80) : 105,
                     vel: baseVel,
                     phase: Math.random() * Math.PI * 2,
                     opacity: isPreset ? 0.6 : 0,
@@ -231,14 +221,16 @@
 
             useEffect(() => {
                 const frame = () => {
-                    timeRef.current += 0.006;
+                    timeRef.current += 0.008;
                     setMessages(prev => prev.map(m => {
                         let nextY = m.y + m.vel;
-                        if (nextY < -15) nextY = 115;
-                        const nextX = m.x + Math.sin(timeRef.current * 0.12 + m.phase) * 5;
+                        if (nextY < -20) nextY = 110;
+                        const nextX = m.x + Math.sin(timeRef.current * 0.15 + m.phase) * 6;
+                        
                         let nextOp = m.opacity;
-                        if (nextY < 100) nextOp = Math.min(1, nextOp + 0.025);
-                        if (nextY < 10) nextOp = Math.max(0, nextOp - 0.025);
+                        if (nextY < 100) nextOp = Math.min(1, nextOp + 0.08); // 出現時のフェードも高速化
+                        if (nextY < 5) nextOp = Math.max(0, nextOp - 0.08); 
+                        
                         return { ...m, y: nextY, displayX: nextX, opacity: nextOp };
                     }));
                     requestAnimationFrame(frame);
