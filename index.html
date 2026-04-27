@@ -19,7 +19,6 @@
             background: radial-gradient(circle at center, transparent 0%, rgba(5, 5, 26, 0.6) 100%);
         }
         
-        /* アイコンの周回アニメーション */
         @keyframes orbit-around-board {
             from { transform: rotate(0deg) translateX(55px) rotate(0deg); }
             to { transform: rotate(360deg) translateX(55px) rotate(-360deg); }
@@ -62,14 +61,17 @@
 <body>
     <div id="root"></div>
 
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
+        // この window.FB への代入により、React側からFirebase機能を使えるようにします
         window.FB = { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, collection, onSnapshot, addDoc, serverTimestamp, query, orderBy, limit };
     </script>
 
+    <!-- React & Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -83,12 +85,14 @@
             const [inputText, setInputText] = useState('');
             const [isSending, setIsSending] = useState(false);
             const [isReady, setIsReady] = useState(false);
-            const [status, setStatus] = useState('SYSTEM_ONLINE');
+            const [status, setStatus] = useState('CONNECTING...');
             const [liveCount, setLiveCount] = useState(0);
             
             const timeRef = useRef(0);
             const dbRef = useRef(null);
             const authRef = useRef(null);
+            
+            // 重要: ブラウザで動かす際は自身のプロジェクトのIDに置き換えてください
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'cosmic-messenger-v3';
 
             const PRESET_PHRASES = [
@@ -101,18 +105,46 @@
 
             useEffect(() => {
                 const init = async () => {
-                    if (!window.FB || typeof __firebase_config === 'undefined') return;
+                    // Firebase SDKがロードされるまで待機
+                    if (!window.FB) return;
+                    
                     try {
-                        const config = JSON.parse(__firebase_config);
+                        let config;
+                        // 1. 環境変数がある場合（Canvas上）
+                        if (typeof __firebase_config !== 'undefined') {
+                            config = JSON.parse(__firebase_config);
+                        } else {
+                            // 2. ブラウザで直接開く場合（ここにご自身のFirebase設定を貼ってください）
+                            config = {
+  　　　　　　　　　　　　　　　　　　　　apiKey: "AIzaSyBm4qNDqT_YpSPwUBkk0am8cpLrj3z4Zts",
+ 　　　　　　　　　　　　　　 　　　　　　authDomain: "universal589.firebaseapp.com",
+  　　　　　　　　　　　　　　　　　　　　projectId: "universal589",
+ 　　　　　　　　　　　　　　　　　　　　 storageBucket: "universal589.firebasestorage.app",
+ 　　　　　　　　　　　　　　 　　　　　　messagingSenderId: "15981589867",
+　　　　　　　　　　　　　　 　　　　　　 appId: "1:15981589867:web:8e88912b6207995984482e",
+　　　　　　　　　　　　　　 　　　　　　 measurementId: "G-LFLVMK13DM"
+　　　　　　　　　　　　　　　　　　　　};
+                        }
+
+                        if (!config.apiKey && typeof __firebase_config === 'undefined') {
+                            setStatus('CONFIG_REQUIRED');
+                            return;
+                        }
+
                         const app = window.FB.initializeApp(config);
                         authRef.current = window.FB.getAuth(app);
                         dbRef.current = window.FB.getFirestore(app);
 
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await window.FB.signInWithCustomToken(authRef.current, __initial_auth_token);
-                        } else {
-                            await window.FB.signInAnonymously(authRef.current);
-                        }
+                        // 認証プロセス
+                        const startAuth = async () => {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await window.FB.signInWithCustomToken(authRef.current, __initial_auth_token);
+                            } else {
+                                await window.FB.signInAnonymously(authRef.current);
+                            }
+                        };
+
+                        await startAuth();
 
                         window.FB.onAuthStateChanged(authRef.current, (u) => {
                             if (u) {
@@ -120,26 +152,41 @@
                                 setStatus('SIGNAL_LOCKED');
                                 setIsReady(true);
                                 
+                                // 初期表示
                                 setMessages(PRESET_PHRASES.map((txt, i) => createMessageObject(`preset-${i}`, txt, `system_${i}`, true)));
 
+                                // リアルタイムリスナー
                                 const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
                                 window.FB.onSnapshot(msgCol, (snap) => {
-                                    setLiveCount(snap.size + Math.floor(Math.random() * 5) + 3);
-                                    
+                                    setLiveCount(snap.size + 10);
                                     setMessages(prev => {
                                         const ids = new Set(prev.map(m => m.id));
                                         const newItems = snap.docs
                                             .filter(d => !ids.has(d.id))
                                             .map(d => createMessageObject(d.id, d.data().text, d.data().userId));
-                                        return [...prev, ...newItems].slice(-20);
+                                        return [...prev, ...newItems].slice(-30);
                                     });
-                                }, (err) => setStatus('SIGNAL_LOST'));
+                                }, (err) => {
+                                    console.error(err);
+                                    setStatus('DB_ERROR');
+                                });
                             }
                         });
-                    } catch (e) { setStatus('OFFLINE'); }
+                    } catch (e) { 
+                        console.error(e);
+                        setStatus('OFFLINE'); 
+                    }
                 };
-                const timer = setInterval(() => { if (window.FB) { clearInterval(timer); init(); } }, 100);
-                return () => clearInterval(timer);
+                
+                // window.FBがロードされるまで繰り返すチェック
+                const checkInterval = setInterval(() => {
+                    if (window.FB) {
+                        clearInterval(checkInterval);
+                        init();
+                    }
+                }, 100);
+                
+                return () => clearInterval(checkInterval);
             }, []);
 
             const generateIdentity = (uid) => {
@@ -147,7 +194,6 @@
                 let seed = 0;
                 if (uid.startsWith('system')) seed = uid.charCodeAt(uid.length - 1) * 123;
                 else if (uid) for (let i = 0; i < uid.length; i++) seed += uid.charCodeAt(i);
-                
                 return {
                     name: `${stars[seed % stars.length]}-${(seed % 999).toString().padStart(3, '0')}`,
                     coords: `RA ${seed % 24}h / DEC ${seed % 180 - 90}°`
@@ -155,8 +201,7 @@
             };
 
             const checkSpecialKeywords = (text, isPreset) => {
-                if (isPreset) return { isSakana: false, isMoon: false, isOor: false, isUotami: false, isTentaikansoku: false, isEndless: false };
-                
+                if (isPreset) return {};
                 return {
                     isSakana: text.includes('サカナクション') || text.includes('新宝島'),
                     isMoon: text.includes('月') || text.includes('MOON'),
@@ -170,9 +215,7 @@
             const createMessageObject = (id, text, userId, isPreset = false) => {
                 const iden = generateIdentity(userId);
                 const specials = checkSpecialKeywords(text, isPreset);
-                
                 const baseVel = -0.005 - (Math.random() * 0.006);
-                
                 return {
                     id, text, userId,
                     name: iden.name,
@@ -192,13 +235,10 @@
                     setMessages(prev => prev.map(m => {
                         let nextY = m.y + m.vel;
                         if (nextY < -15) nextY = 115;
-                        
                         const nextX = m.x + Math.sin(timeRef.current * 0.12 + m.phase) * 5;
                         let nextOp = m.opacity;
-                        
                         if (nextY < 100) nextOp = Math.min(1, nextOp + 0.025);
                         if (nextY < 10) nextOp = Math.max(0, nextOp - 0.025);
-                        
                         return { ...m, y: nextY, displayX: nextX, opacity: nextOp };
                     }));
                     requestAnimationFrame(frame);
@@ -208,7 +248,8 @@
 
             const handleSend = async (e) => {
                 e.preventDefault();
-                if (!inputText.trim() || !isReady || isSending) return;
+                if (!inputText.trim() || !isReady || isSending || !user) return;
+                
                 setIsSending(true);
                 try {
                     const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
@@ -218,7 +259,12 @@
                         createdAt: window.FB.serverTimestamp()
                     });
                     setInputText('');
-                } catch (e) { setStatus('SEND_ERROR'); } finally { setIsSending(false); }
+                } catch (err) { 
+                    console.error("Submit Error:", err);
+                    setStatus('SEND_ERROR'); 
+                } finally { 
+                    setIsSending(false); 
+                }
             };
 
             return (
@@ -234,11 +280,11 @@
                         <div className="flex flex-col gap-1.5">
                             <div className="flex items-center gap-3">
                                 <div className={`h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_cyan] live-dot`} />
-                                <span className="text-[9px] font-black tracking-[0.5em] text-white/80 uppercase">Live Observer</span>
+                                <span className="text-[9px] font-black tracking-[0.5em] text-white/80 uppercase">Observer System</span>
                             </div>
                             <div className="flex items-baseline gap-2 ml-5">
                                 <span className="text-[18px] font-thin text-cyan-300 tracking-tighter">{liveCount.toString().padStart(3, '0')}</span>
-                                <span className="text-[7px] text-white/30 font-bold tracking-widest uppercase">Entities Detected</span>
+                                <span className="text-[7px] text-white/30 font-bold tracking-widest uppercase">Nodes Online</span>
                             </div>
                             <div className="ml-5 h-[1px] w-24 bg-gradient-to-r from-cyan-500/50 to-transparent" />
                             <div className="ml-5 text-[6px] font-mono text-cyan-400/40 tracking-widest">{status}</div>
@@ -248,14 +294,12 @@
                     <div className="absolute inset-0 z-30 pointer-events-none">
                         {messages.map(m => (
                             <div key={m.id} className="absolute flex flex-col items-center" style={{ left: `${m.displayX}%`, top: `${m.y}%`, opacity: m.opacity, transform: 'translate(-50%, -50%)' }}>
-                                
                                 {m.isSakana && <div className="orbit-emoji text-xl">🐡</div>}
                                 {m.isMoon && <div className="orbit-emoji text-2xl">🌙</div>}
                                 {m.isOor && <div className="orbit-emoji text-2xl">🪐</div>}
                                 {m.isUotami && <div className="orbit-emoji text-xl">🐟</div>}
                                 {m.isTentaikansoku && <div className="orbit-emoji text-xl">🔭</div>}
                                 {m.isEndless && <div className="orbit-emoji text-xl">♥</div>}
-                                
                                 <div className="mb-2 flex flex-col items-center opacity-30">
                                     <div className="text-[7px] text-cyan-200 font-black tracking-[0.4em]">{m.name}</div>
                                     <div className="text-[5px] text-white/50 font-mono tracking-tighter">{m.coords}</div>
@@ -274,7 +318,7 @@
                                     type="text"
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
-                                    placeholder={isSending ? "..." : "MESSAGE TO UNIVERSE"}
+                                    placeholder={isSending ? "SYNCING..." : "SIGNAL INPUT"}
                                     disabled={!isReady || isSending}
                                     className="w-full bg-transparent py-7 text-center text-white placeholder-white/5 tracking-[1em] font-bold focus:outline-none uppercase focus:text-white/80"
                                     maxLength={30}
@@ -282,8 +326,6 @@
                             </div>
                         </form>
                     </div>
-
-                    <div className="absolute inset-0 z-40 pointer-events-none shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]" />
                 </div>
             );
         };
