@@ -160,6 +160,12 @@
                     const text = data.text || "";
                     const hasSakana = text.includes('サカナクション');
                     const hasOOR = text.includes('1069') || text.includes('ワンオク');
+                    const hasSakana = text.includes('いっくん') || text.includes('いっくん');
+                    const hasOOR = text.includes('taka') || text.includes('taka');
+                    const hasmoon = text.includes('tuki') || text.includes('tuki');
+                    const hasmoon = text.includes('月') || text.includes('月');
+                    const hasskd = text.includes('スケボ') || text.includes('スケボ');
+                    const hasskd = text.includes('skateboard') || text.includes('skateboard');
                     const identity = getCosmicIdentity(data.userId);
 
                     messages.push({
@@ -205,6 +211,9 @@
                     let decoHTML = '';
                     if (msg.hasSakana) decoHTML = '<div class="deco-emoji">🐡</div>';
                     if (msg.hasOOR) decoHTML = '<div class="deco-emoji">🌎</div>';
+                    if (msg.hasOOR) decoHTML = '<div class="deco-emoji">😎</div>';
+                    if (msg.hasmoon) decoHTML = '<div class="deco-emoji">🌙</div>';
+                    if (msg.hasskd) decoHTML = '<div class="deco-emoji">🛹</div>';
 
                     msg.element.innerHTML = `
                         ${decoHTML}
