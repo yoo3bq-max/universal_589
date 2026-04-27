@@ -18,7 +18,6 @@
         .bg-radial {
             background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.8) 100%);
         }
-        /* 入力欄の呼吸するようなフェードアニメーション */
         @keyframes breathe-light {
             0%, 100% { border-color: rgba(255, 255, 255, 0.1); box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); }
             50% { border-color: rgba(34, 211, 238, 0.4); box-shadow: 0 0 30px rgba(34, 211, 238, 0.15); }
@@ -58,6 +57,7 @@
             const [time, setTime] = useState(0);
             const [isSending, setIsSending] = useState(false);
             const [isDbReady, setIsDbReady] = useState(false);
+            const [statusMessage, setStatusMessage] = useState('CALIBRATING...');
             
             const timeRef = useRef(0);
             const dbRef = useRef(null);
@@ -78,35 +78,26 @@
                 const name = starNames[seed % starNames.length];
                 const raH = (seed % 24).toString().padStart(2, '0');
                 const raM = (seed * 7 % 60).toString().padStart(2, '0');
-                const raS = (seed * 13 % 60).toString().padStart(2, '0');
-                const decD = ((seed % 180) - 90).toString().padStart(2, '0');
-                const decM = (seed * 3 % 60).toString().padStart(2, '0');
-                const decS = (seed * 11 % 60).toString().padStart(2, '0');
                 return {
                     name: `${name}-${(seed % 999).toString().padStart(3, '0')}`,
-                    coords: `RA ${raH}h ${raM}m ${raS}s / DEC ${decD}° ${decM}' ${decS}"`
+                    coords: `RA ${raH}h ${raM}m / DEC ${(seed % 180 - 90)}°`
                 };
             };
 
             const createMessageObject = (id, text, userId, isPreset = false) => {
                 const lowerText = text.toLowerCase();
-                
-                // 反応キーワード判定
                 const hasSakana = lowerText.includes('サカナクション');
                 const hasMoon = lowerText.includes('tuki') || text.includes('月');
                 const hasSkate = lowerText.includes('skateboard');
-                const hasTaka = lowerText.includes('taka') || text.includes('taka');
+                const hasTaka = lowerText.includes('taka') || text.includes('TAKA');
                 const hasIkkun = text.includes('いっくん');
-                // 新規追加分
                 const hasBGM = lowerText.includes('bgm') || lowerText.includes('音楽をかける');
-                const hasEngineer = lowerText.includes('サウンドエンジニア') || lowerText.includes('sound engineer');
-                const hasLive = lowerText.includes('live sound') || lowerText.includes('live sound engineer');
 
                 const cosmicIdentity = generateCosmicIdentity(userId);
                 
                 return {
                     id, text, userId, isPreset,
-                    hasSakana, hasMoon, hasSkate, hasTaka, hasIkkun, hasBGM, hasEngineer, hasLive,
+                    hasSakana, hasMoon, hasSkate, hasTaka, hasIkkun, hasBGM,
                     cosmicName: cosmicIdentity.name,
                     cosmicCoords: cosmicIdentity.coords,
                     currentX: 10 + Math.random() * 80,
@@ -116,58 +107,75 @@
                     oscillationAmpX: 2 + Math.random() * 5,
                     oscillationAmpY: 1.5 + Math.random() * 4,
                     phase: Math.random() * Math.PI * 2,
-                    // 音響系キーワードは上昇速度を上げる演出
-                    floatVelocity: (hasTaka || hasSkate || hasLive || hasEngineer) ? -0.07 : (-0.008 - Math.random() * 0.005),
+                    floatVelocity: (hasTaka || hasSkate) ? -0.07 : (-0.008 - Math.random() * 0.005),
                     opacity: isPreset ? 0.4 : 0,
                     orbitPhase: Math.random() * Math.PI * 2
                 };
             };
 
+            // Firebase Initialization & Sync
             useEffect(() => {
-                const checkFB = setInterval(async () => {
-                    if (window.FB && typeof __firebase_config !== 'undefined') {
-                        clearInterval(checkFB);
-                        try {
-                            const config = JSON.parse(__firebase_config);
-                            const app = window.FB.initializeApp(config);
-                            authRef.current = window.FB.getAuth(app);
-                            dbRef.current = window.FB.getFirestore(app);
+                const initFirebase = async () => {
+                    if (!window.FB || typeof __firebase_config === 'undefined') return;
+                    
+                    try {
+                        const config = JSON.parse(__firebase_config);
+                        const app = window.FB.initializeApp(config);
+                        authRef.current = window.FB.getAuth(app);
+                        dbRef.current = window.FB.getFirestore(app);
 
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await window.FB.signInWithCustomToken(authRef.current, __initial_auth_token);
-                            } else {
-                                await window.FB.signInAnonymously(authRef.current);
-                            }
-
-                            window.FB.onAuthStateChanged(authRef.current, (u) => {
-                                setUser(u);
-                                setIsDbReady(true);
-                            });
-
-                            const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
-                            window.FB.onSnapshot(msgCol, (snapshot) => {
-                                setMessages(prev => {
-                                    const existingIds = new Set(prev.map(m => m.id));
-                                    const newMsgs = snapshot.docs
-                                        .filter(doc => !existingIds.has(doc.id))
-                                        .map(doc => {
-                                            const data = doc.data();
-                                            return createMessageObject(doc.id, data.text || "", data.userId || "anon", false);
-                                        });
-                                    return [...prev, ...newMsgs].slice(-60);
-                                });
-                            }, (error) => console.error("Firestore error:", error));
-
-                        } catch (err) {
-                            console.error("Firebase initialization failed:", err);
+                        // 1. 認証を最優先で完了させる (RULE 3)
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await window.FB.signInWithCustomToken(authRef.current, __initial_auth_token);
+                        } else {
+                            await window.FB.signInAnonymously(authRef.current);
                         }
+
+                        // 2. ユーザー情報の確定を待つ
+                        window.FB.onAuthStateChanged(authRef.current, (u) => {
+                            if (u) {
+                                setUser(u);
+                                setStatusMessage('AUDIO_CORE_STABLE');
+                                setIsDbReady(true);
+                                
+                                // 3. 認証後にデータ購読を開始 (RULE 1)
+                                const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
+                                window.FB.onSnapshot(msgCol, (snapshot) => {
+                                    setMessages(prev => {
+                                        const existingIds = new Set(prev.map(m => m.id));
+                                        const newMsgs = snapshot.docs
+                                            .filter(doc => !existingIds.has(doc.id))
+                                            .map(doc => {
+                                                const data = doc.data();
+                                                return createMessageObject(doc.id, data.text || "", data.userId || "anon", false);
+                                            });
+                                        return [...prev, ...newMsgs].slice(-60);
+                                    });
+                                }, (err) => {
+                                    console.error("Firestore error:", err);
+                                    setStatusMessage('SIGNAL_DROPOUT');
+                                });
+                            }
+                        });
+
+                    } catch (err) {
+                        console.error("Firebase init error:", err);
+                        setStatusMessage('CONNECTION_ERROR');
+                    }
+                };
+
+                const interval = setInterval(() => {
+                    if (window.FB) {
+                        clearInterval(interval);
+                        initFirebase();
                     }
                 }, 100);
 
                 setMessages(PRESET_PHRASES.map((txt, i) => createMessageObject(`preset-${i}`, txt, "SYSTEM", true)));
-                return () => clearInterval(checkFB);
+                return () => clearInterval(interval);
             }, []);
 
+            // Animation Loop
             useEffect(() => {
                 const animate = () => {
                     timeRef.current += 0.005;
@@ -197,19 +205,23 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!inputText.trim() || !dbRef.current || isSending) return;
+                // 認証済みかつDB準備完了を確認
+                if (!inputText.trim() || !dbRef.current || !user || isSending) return;
                 
                 setIsSending(true);
+                setStatusMessage('TRANSMITTING...');
                 try {
                     const msgCol = window.FB.collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'messages');
                     await window.FB.addDoc(msgCol, {
                         text: inputText,
-                        userId: user ? user.uid : 'anonymous_node',
+                        userId: user.uid,
                         createdAt: window.FB.serverTimestamp()
                     });
                     setInputText('');
+                    setStatusMessage('AUDIO_CORE_STABLE');
                 } catch (err) { 
                     console.error("Transmission failed:", err);
+                    setStatusMessage('TX_FAILED: CHECK_PERMISSIONS');
                 } finally {
                     setIsSending(false);
                 }
@@ -217,7 +229,6 @@
 
             return (
                 <div className="relative w-full h-screen bg-[#02020a] overflow-hidden text-white notranslate">
-                    {/* Background */}
                     <div 
                         className="absolute inset-0 z-0 opacity-40 pointer-events-none"
                         style={{ 
@@ -239,20 +250,19 @@
                             return (
                                 <div key={msg.id} className="absolute" style={{ left: `${msg.displayX}%`, top: `${msg.displayY}%`, opacity: msg.opacity, transform: `translate(-50%, -50%)` }}>
                                     <div className="relative flex flex-col items-center">
-                                        
                                         {/* Icons */}
-                                        {msg.hasSakana && <div className="absolute text-[24px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🐡</div>}
-                                        {msg.hasMoon && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🌙</div>}
-                                        {msg.hasSkate && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🛹</div>}
-                                        {msg.hasTaka && <div className="absolute text-[28px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🦅</div>}
-                                        {msg.hasIkkun && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🐏</div>}
-                                        {msg.hasBGM && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🎧</div>}
-                                        {msg.hasEngineer && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🎚️</div>}
-                                        {msg.hasLive && <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>🔊</div>}
+                                        <div className="absolute text-[26px] drop-shadow-glow" style={{ transform: `translate(${orbitX}px, ${orbitY}px)` }}>
+                                            {msg.hasSakana && '🐡'}
+                                            {msg.hasMoon && '🌙'}
+                                            {msg.hasSkate && '🛹'}
+                                            {msg.hasTaka && '🦅'}
+                                            {msg.hasIkkun && '🐏'}
+                                            {msg.hasBGM && '🎧'}
+                                        </div>
 
-                                        {/* ID Section */}
+                                        {/* ID Tag */}
                                         <div className="px-4 py-1.5 bg-black/80 rounded-full border border-white/20 mb-2 shadow-lg flex flex-col items-center gap-0.5 min-w-[120px]">
-                                            <span className={`text-[9px] font-black tracking-widest uppercase ${msg.isPreset ? 'text-white/30' : (isOwn ? 'text-white' : 'text-cyan-400')}`}>
+                                            <span className={`text-[9px] font-black tracking-widest uppercase ${msg.isPreset ? 'text-white/30' : (isOwn ? 'text-cyan-400' : 'text-white/70')}`}>
                                                 {msg.cosmicName}
                                             </span>
                                             <span className="text-[6px] font-mono tracking-tighter text-white/40 uppercase">
@@ -261,7 +271,7 @@
                                         </div>
 
                                         {/* Message Bubble */}
-                                        <div className={`px-7 py-4 rounded-[1.8rem] border-2 backdrop-blur-md max-w-[260px] text-center shadow-2xl transition-all duration-1000 ${msg.isPreset ? 'bg-white/5 border-white/10 text-white/60 italic' : (isOwn ? 'bg-white/10 border-white/40 text-white' : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-50')}`}>
+                                        <div className={`px-7 py-4 rounded-[1.8rem] border-2 backdrop-blur-md max-w-[260px] text-center shadow-2xl transition-all duration-1000 ${msg.isPreset ? 'bg-white/5 border-white/10 text-white/60 italic' : (isOwn ? 'bg-cyan-900/40 border-cyan-500/40 text-cyan-50' : 'bg-white/10 border-white/20 text-white')}`}>
                                             <p className="text-[13px] tracking-[0.18em] leading-relaxed font-medium">
                                                 {msg.text}
                                             </p>
@@ -272,27 +282,34 @@
                         })}
                     </div>
 
-                    {/* Status Display - エンジニア寄りの文言 */}
-                    <div className="absolute top-10 left-10 z-50 pointer-events-none opacity-40">
-                        <div className="flex items-center gap-3">
-                            <div className={`h-1.5 w-1.5 rounded-full animate-pulse ${isDbReady ? 'bg-cyan-400' : 'bg-red-400'}`} />
-                            <p className="text-[9px] font-bold tracking-[0.4em] text-white/70 uppercase">
-                                {isDbReady ? 'AUDIO_CORE_STABLE' : 'CALIBRATING_SENSORS...'}
-                            </p>
+                    {/* Pro Sound Engineer Status */}
+                    <div className="absolute top-10 left-10 z-50 pointer-events-none opacity-60">
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-3">
+                                <div className={`h-1.5 w-1.5 rounded-full animate-pulse ${isDbReady ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]' : 'bg-red-500'}`} />
+                                <p className="text-[9px] font-black tracking-[0.4em] text-white uppercase">
+                                    {statusMessage}
+                                </p>
+                            </div>
+                            <div className="flex gap-1 h-1">
+                                {[...Array(8)].map((_, i) => (
+                                    <div key={i} className={`w-3 h-full rounded-full ${isDbReady ? 'bg-cyan-400/30' : 'bg-red-500/20'}`} />
+                                ))}
+                            </div>
                         </div>
                     </div>
 
                     {/* Input Area */}
                     <div className="absolute bottom-20 left-0 right-0 z-50 flex justify-center px-6">
                         <form onSubmit={handleSubmit} className="w-full max-w-[320px] pointer-events-auto">
-                            <div className={`input-breathe relative rounded-full border bg-black/90 backdrop-blur-3xl transition-all duration-1000 group ${isSending ? 'opacity-50' : 'opacity-100'} focus-within:border-cyan-400/80`}>
+                            <div className={`input-breathe relative rounded-full border bg-black/90 backdrop-blur-3xl transition-all duration-1000 group ${(!isDbReady || isSending) ? 'opacity-50' : 'opacity-100'} focus-within:border-cyan-400/80`}>
                                 <input
                                     type="text"
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
-                                    placeholder={isSending ? "TRANSMITTING..." : "SIGNAL TO UNIVERSE"}
+                                    placeholder={!isDbReady ? "INITIALIZING..." : (isSending ? "SENDING..." : "SIGNAL_INPUT")}
                                     disabled={!isDbReady || isSending}
-                                    className="w-full bg-transparent px-10 py-6 text-center text-white placeholder-white/20 focus:outline-none tracking-[0.5em] text-[11px] uppercase font-bold transition-opacity duration-1000"
+                                    className="w-full bg-transparent px-10 py-6 text-center text-white placeholder-white/10 focus:outline-none tracking-[0.5em] text-[11px] uppercase font-bold transition-opacity duration-1000"
                                     maxLength={30}
                                 />
                                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[1px] bg-cyan-400 w-0 group-focus-within:w-1/2 opacity-0 group-focus-within:opacity-100 transition-all duration-1000" />
